@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Compartilhador de Links — Conta Cliques</title>
+  <title>Compartilhador de Links — Contador</title>
   <style>
     :root{--bg:#0f1724;--card:#0b1220;--accent:#06b6d4;--muted:#94a3b8;--glass:rgba(255,255,255,0.03)}
     *{box-sizing:border-box}
@@ -22,6 +22,8 @@
     .admin-login{display:flex;gap:8px}
     table{width:100%;border-collapse:collapse;margin-top:8px}
     th,td{padding:8px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.02);font-size:13px}
+    .modal{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(2,6,23,0.6);}
+    .modal-card{background:#021226;padding:18px;border-radius:10px;width:360px}
     @media(max-width:980px){.grid{grid-template-columns:1fr} .card{padding:12px}}
   </style>
 </head>
@@ -30,7 +32,7 @@
     <div class="header">
       <div>
         <h1>Compartilhador de Links — Controle & Contador</h1>
-        <div class="small">Compartilhe links públicos; cadastre e acompanhe cliques na sua planilha Google.</div>
+        <div class="small">Clique em um link — será solicitado Email/CPF antes de abrir. Os dados vão para sua planilha.</div>
       </div>
       <div class="admin-login card" style="align-items:center">
         <input id="adminPass" class="input" placeholder="Senha admin" type="password" style="width:170px">
@@ -54,7 +56,7 @@
           <button id="refreshBtn" class="btn">Atualizar</button>
         </div>
 
-        <p class="small" style="margin-top:10px">Ao clicar em um link, o clique será registrado na planilha com timestamp e o identificador opcional.</p>
+        <p class="small" style="margin-top:10px">Ao clicar em um link você será solicitado a informar Email/CPF — isso será gravado na aba "Cliques".</p>
       </div>
 
       <!-- Painel admin -->
@@ -67,8 +69,8 @@
           <input id="linkTitle" class="input" placeholder="Ex: Meu Formulário">
           <label class="small" style="margin-top:8px">URL</label>
           <input id="linkUrl" class="input" placeholder="https://...">
-          <label class="small" style="margin-top:8px">Descrição (opcional)</label>
-          <input id="linkDesc" class="input" placeholder="Breve descrição">
+          <label class="small" style="margin-top:8px">Criado por (opcional)</label>
+          <input id="linkCreator" class="input" placeholder="Seu nome">
           <div style="display:flex;gap:8px;margin-top:8px">
             <button id="addLinkBtn" class="btn">Adicionar Link</button>
             <button id="exportBtn" class="btn">Exportar cliques (CSV)</button>
@@ -84,57 +86,79 @@
     </div>
   </div>
 
+  <!-- Modal para pedir identificador antes de abrir link -->
+  <div id="identModal" class="modal" style="display:none">
+    <div class="modal-card">
+      <strong>Informe Email ou CPF para continuar</strong>
+      <div style="margin-top:8px">
+        <input id="modalIdent" class="input" placeholder="ex: usuario@dominio.com ou 12345678909">
+      </div>
+      <div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end">
+        <button id="cancelOpen" class="btn" style="background:#64748b">Cancelar</button>
+        <button id="confirmOpen" class="btn">Confirmar e Abrir</button>
+      </div>
+    </div>
+  </div>
+
   <script>
-    // === CONFIGURE AQUI: cole a URL do Apps Script implantado ===
+    // === CONFIGURAÇÕES (já preenchidas com os seus dados) ===
     const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxdXNv7YQ4JSaWT6l7ZgzNFMYYuyJ9qmSGoajDyc6Ia4JKRFh-t5n4YwuWt58I9T_yCHw/exec';
+    const SPREADSHEET_ID = '19zQZRQH2FSnYKZNbtk_crIeBqBGJ9oww0O7b3TJkp0U';
+    const ADMIN_PASSWORD = 'Nanl250612#';
 
     // Utilitários
     const el = id => document.getElementById(id);
     const isUrl = s => /^(https?:\/\/)/.test(s);
+    function escapeHtml(s){ return (s||'').replace(/[&"'<>]/g, c=>({ '&':'&amp;','"':'&quot;','\'":"&#39;","<":"&lt;",">":"&gt;" }[c])); }
+
+    // Estado para abrir link após identificação
+    let pendingOpen = null; // {id, url}
 
     // Carregar links públicos
     async function carregarLinks(){
       try{
-        if(!SCRIPT_URL || SCRIPT_URL.includes('COLE_AQUI')){ renderMessage('Configure SCRIPT_URL no arquivo HTML para carregar dados.'); return; }
         const r = await fetch(SCRIPT_URL + '?action=getLinks');
         const j = await r.json();
-        if(!j.ok) { renderMessage('Erro ao carregar links.'); return; }
+        if(!j.ok) { console.warn('Erro ao carregar links'); return; }
         const links = j.links || [];
         el('totalLinks').textContent = links.length;
         const list = el('linksList'); list.innerHTML = '';
         links.forEach(l=>{
           const div = document.createElement('div'); div.className='link-item';
-          div.innerHTML = `<div style="max-width:70%"><strong>${escapeHtml(l.title)}</strong><div class="meta">${escapeHtml(l.desc||'')}</div></div>
+          div.innerHTML = `<div style="max-width:70%"><strong>${escapeHtml(l.title)}</strong><div class="meta">${escapeHtml(l.desc||'')}</div><div class="small">Criado: ${new Date(l.createdAt||'').toLocaleString()||'-'}</div></div>
             <div style="display:flex;gap:8px;align-items:center">
               <div class="small">${l.count||0} clicks</div>
-              <button class="btn" onclick="onClickLink('${encodeURIComponent(l.id)}','${encodeURIComponent(l.url)}')">Abrir</button>
+              <button class="btn" onclick="prepareOpen('${encodeURIComponent(l.id)}','${encodeURIComponent(l.url)}')">Abrir</button>
               <button class="btn" onclick="copyLink('${encodeURIComponent(l.url)}')">Copiar</button>
             </div>`;
           list.appendChild(div);
         });
-      }catch(err){ console.error(err); renderMessage('Erro na requisição.'); }
+      }catch(err){ console.error(err); }
     }
 
-    function renderMessage(m){ console.log(m); }
+    // preparar abertura de link — mostra modal para pedir ident
+    function prepareOpen(idEnc, urlEnc){
+      pendingOpen = { id: decodeURIComponent(idEnc), url: decodeURIComponent(urlEnc) };
+      el('modalIdent').value = el('identifyInput').value || '';
+      el('identModal').style.display = 'flex';
+    }
+    el('cancelOpen').addEventListener('click', ()=>{ pendingOpen=null; el('identModal').style.display='none'; });
 
-    function escapeHtml(s){ return (s||'').replace(/[&"'<>]/g, c=>({ '&':'&amp;','"':'&quot;','\'":"&#39;","<":"&lt;",">":"&gt;" }[c])); }
-
-    // Ao clicar em um link: registra e abre em nova aba
-    async function onClickLink(idEnc, urlEnc){
-      const id = decodeURIComponent(idEnc);
-      const url = decodeURIComponent(urlEnc);
-      const ident = el('identifyInput').value.trim();
-      // registrar clique (não bloqueante)
+    el('confirmOpen').addEventListener('click', async ()=>{
+      const ident = el('modalIdent').value.trim();
+      if(!pendingOpen) return;
+      // Registrar clique
       try{
-        if(SCRIPT_URL && !SCRIPT_URL.includes('COLE_AQUI')){
-          await fetch(SCRIPT_URL + '?action=recordClick&linkId='+encodeURIComponent(id)+ (ident?('&ident='+encodeURIComponent(ident)):''));
-        }
-      }catch(e){ console.warn('Erro ao registrar clique',e); }
-      // abrir
-      window.open(url,'_blank');
-      // atualizar contador na UI
-      setTimeout(carregarLinks,800);
-    }
+        const url = SCRIPT_URL + '?action=recordClick&linkId='+encodeURIComponent(pendingOpen.id)+ (ident?('&ident='+encodeURIComponent(ident)): '');
+        // fire-and-forget
+        fetch(url).catch(e=>console.warn(e));
+      }catch(e){ console.warn(e); }
+      // abrir link
+      window.open(pendingOpen.url, '_blank');
+      pendingOpen = null;
+      el('identModal').style.display = 'none';
+      setTimeout(carregarLinks,700);
+    });
 
     function copyLink(url){ navigator.clipboard.writeText(decodeURIComponent(url)).then(()=>alert('Link copiado')) }
 
@@ -152,17 +176,17 @@
     function enableAdmin(){ el('adminPanel').style.display='block'; el('adminPass').value=''; }
     el('logoutBtn').addEventListener('click', ()=>{ el('adminPanel').style.display='none'; });
 
-    // Adicionar link
+    // Adicionar link (admin)
     el('addLinkBtn').addEventListener('click', async ()=>{
       const title = el('linkTitle').value.trim();
       const url = el('linkUrl').value.trim();
-      const desc = el('linkDesc').value.trim();
+      const creator = el('linkCreator').value.trim();
       if(!title||!url){ alert('Preencha título e URL'); return; }
       if(!isUrl(url)) { alert('URL inválida (comece com http:// ou https://)'); return; }
       try{
-        const res = await fetch(SCRIPT_URL, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'addLink',title, url, desc})});
+        const res = await fetch(SCRIPT_URL, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'addLink',title, url, desc:creator})});
         const j = await res.json();
-        if(j && j.ok){ el('linkTitle').value=''; el('linkUrl').value=''; el('linkDesc').value=''; carregarLinks(); alert('Link adicionado'); }
+        if(j && j.ok){ el('linkTitle').value=''; el('linkUrl').value=''; el('linkCreator').value=''; carregarLinks(); alert('Link adicionado'); }
         else alert('Erro ao adicionar');
       }catch(err){ console.error(err); alert('Erro na requisição'); }
     });
@@ -175,12 +199,12 @@
         if(!j.ok) return;
         const elc = el('recentClicks'); elc.innerHTML='';
         (j.items||[]).slice(0,200).forEach(c=>{
-          const d = document.createElement('div'); d.className='small'; d.style.padding='6px 0'; d.textContent = `${c.ts} — ${c.linkTitle || c.linkId} — ${c.ident || '-'} `; elc.appendChild(d);
+          const d = document.createElement('div'); d.className='small'; d.style.padding='6px 0'; d.textContent = `${new Date(c.ts||'').toLocaleString() || c.ts} — ${c.linkTitle || c.linkId} — ${c.ident || '-'} `; elc.appendChild(d);
         });
       }catch(e){ console.warn(e); }
     }
 
-    // Exportar cliques CSV
+    // Exportar CSV
     el('exportBtn').addEventListener('click', async ()=>{
       try{
         const r = await fetch(SCRIPT_URL + '?action=exportCsv');
@@ -199,5 +223,3 @@
   </script>
 </body>
 </html>
-
-
