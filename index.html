@@ -1,0 +1,203 @@
+
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Compartilhador de Links — Conta Cliques</title>
+  <style>
+    :root{--bg:#0f1724;--card:#0b1220;--accent:#06b6d4;--muted:#94a3b8;--glass:rgba(255,255,255,0.03)}
+    *{box-sizing:border-box}
+    body{font-family:Inter,system-ui,Arial,sans-serif;background:linear-gradient(180deg,#071023 0%,#071733 100%);color:#e6eef8;margin:0;padding:28px;min-height:100vh}
+    .wrap{max-width:1100px;margin:0 auto}
+    .header{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+    h1{font-size:20px;margin:0}
+    .grid{display:grid;grid-template-columns:1fr 380px;gap:18px}
+    .card{background:var(--card);padding:16px;border-radius:12px;box-shadow:0 6px 18px rgba(2,6,23,0.6)}
+    .btn{background:var(--accent);color:#04202b;padding:8px 12px;border-radius:8px;border:0;font-weight:700;cursor:pointer}
+    .input,textarea,select{width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:inherit}
+    .link-item{display:flex;justify-content:space-between;align-items:center;padding:10px;border-radius:8px;background:var(--glass);margin-bottom:8px}
+    .meta{color:var(--muted);font-size:13px}
+    .small{font-size:13px;color:var(--muted)}
+    .admin-login{display:flex;gap:8px}
+    table{width:100%;border-collapse:collapse;margin-top:8px}
+    th,td{padding:8px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.02);font-size:13px}
+    @media(max-width:980px){.grid{grid-template-columns:1fr} .card{padding:12px}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="header">
+      <div>
+        <h1>Compartilhador de Links — Controle & Contador</h1>
+        <div class="small">Compartilhe links públicos; cadastre e acompanhe cliques na sua planilha Google.</div>
+      </div>
+      <div class="admin-login card" style="align-items:center">
+        <input id="adminPass" class="input" placeholder="Senha admin" type="password" style="width:170px">
+        <button id="btnAdminLogin" class="btn">Entrar</button>
+      </div>
+    </div>
+
+    <div class="grid">
+      <!-- Área pública: lista de links + share -->
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <strong>Links públicos</strong>
+          <div class="small">Total: <span id="totalLinks">0</span></div>
+        </div>
+
+        <div id="linksList"></div>
+
+        <hr style="margin:12px 0;border:0;border-top:1px solid rgba(255,255,255,0.03)">
+        <div style="display:flex;gap:8px;align-items:center">
+          <input id="identifyInput" class="input" placeholder="Seu email ou CPF (opcional)">
+          <button id="refreshBtn" class="btn">Atualizar</button>
+        </div>
+
+        <p class="small" style="margin-top:10px">Ao clicar em um link, o clique será registrado na planilha com timestamp e o identificador opcional.</p>
+      </div>
+
+      <!-- Painel admin -->
+      <div class="card" id="adminPanel" style="display:none">
+        <strong>Painel Admin</strong>
+        <div class="small" style="margin-bottom:8px">Adicionar / Gerenciar links</div>
+
+        <div style="margin-top:8px">
+          <label class="small">Título</label>
+          <input id="linkTitle" class="input" placeholder="Ex: Meu Formulário">
+          <label class="small" style="margin-top:8px">URL</label>
+          <input id="linkUrl" class="input" placeholder="https://...">
+          <label class="small" style="margin-top:8px">Descrição (opcional)</label>
+          <input id="linkDesc" class="input" placeholder="Breve descrição">
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <button id="addLinkBtn" class="btn">Adicionar Link</button>
+            <button id="exportBtn" class="btn">Exportar cliques (CSV)</button>
+            <button id="logoutBtn" class="btn" style="background:#ef4444">Sair</button>
+          </div>
+        </div>
+
+        <div style="margin-top:12px">
+          <strong class="small">Últimos cliques</strong>
+          <div id="recentClicks" style="max-height:220px;overflow:auto;margin-top:8px"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // === CONFIGURE AQUI: cole a URL do Apps Script implantado ===
+    const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxdXNv7YQ4JSaWT6l7ZgzNFMYYuyJ9qmSGoajDyc6Ia4JKRFh-t5n4YwuWt58I9T_yCHw/exec';
+
+    // Utilitários
+    const el = id => document.getElementById(id);
+    const isUrl = s => /^(https?:\/\/)/.test(s);
+
+    // Carregar links públicos
+    async function carregarLinks(){
+      try{
+        if(!SCRIPT_URL || SCRIPT_URL.includes('COLE_AQUI')){ renderMessage('Configure SCRIPT_URL no arquivo HTML para carregar dados.'); return; }
+        const r = await fetch(SCRIPT_URL + '?action=getLinks');
+        const j = await r.json();
+        if(!j.ok) { renderMessage('Erro ao carregar links.'); return; }
+        const links = j.links || [];
+        el('totalLinks').textContent = links.length;
+        const list = el('linksList'); list.innerHTML = '';
+        links.forEach(l=>{
+          const div = document.createElement('div'); div.className='link-item';
+          div.innerHTML = `<div style="max-width:70%"><strong>${escapeHtml(l.title)}</strong><div class="meta">${escapeHtml(l.desc||'')}</div></div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <div class="small">${l.count||0} clicks</div>
+              <button class="btn" onclick="onClickLink('${encodeURIComponent(l.id)}','${encodeURIComponent(l.url)}')">Abrir</button>
+              <button class="btn" onclick="copyLink('${encodeURIComponent(l.url)}')">Copiar</button>
+            </div>`;
+          list.appendChild(div);
+        });
+      }catch(err){ console.error(err); renderMessage('Erro na requisição.'); }
+    }
+
+    function renderMessage(m){ console.log(m); }
+
+    function escapeHtml(s){ return (s||'').replace(/[&"'<>]/g, c=>({ '&':'&amp;','"':'&quot;','\'":"&#39;","<":"&lt;",">":"&gt;" }[c])); }
+
+    // Ao clicar em um link: registra e abre em nova aba
+    async function onClickLink(idEnc, urlEnc){
+      const id = decodeURIComponent(idEnc);
+      const url = decodeURIComponent(urlEnc);
+      const ident = el('identifyInput').value.trim();
+      // registrar clique (não bloqueante)
+      try{
+        if(SCRIPT_URL && !SCRIPT_URL.includes('COLE_AQUI')){
+          await fetch(SCRIPT_URL + '?action=recordClick&linkId='+encodeURIComponent(id)+ (ident?('&ident='+encodeURIComponent(ident)):''));
+        }
+      }catch(e){ console.warn('Erro ao registrar clique',e); }
+      // abrir
+      window.open(url,'_blank');
+      // atualizar contador na UI
+      setTimeout(carregarLinks,800);
+    }
+
+    function copyLink(url){ navigator.clipboard.writeText(decodeURIComponent(url)).then(()=>alert('Link copiado')) }
+
+    // Admin login
+    el('btnAdminLogin').addEventListener('click', async ()=>{
+      const pass = el('adminPass').value;
+      if(!pass){ alert('Digite a senha admin'); return; }
+      try{
+        const res = await fetch(SCRIPT_URL, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'auth',password:pass})});
+        const j = await res.json();
+        if(j && j.ok){ enableAdmin(); carregarRecentClicks(); } else { alert('Senha inválida'); }
+      }catch(e){ alert('Erro ao autenticar'); }
+    });
+
+    function enableAdmin(){ el('adminPanel').style.display='block'; el('adminPass').value=''; }
+    el('logoutBtn').addEventListener('click', ()=>{ el('adminPanel').style.display='none'; });
+
+    // Adicionar link
+    el('addLinkBtn').addEventListener('click', async ()=>{
+      const title = el('linkTitle').value.trim();
+      const url = el('linkUrl').value.trim();
+      const desc = el('linkDesc').value.trim();
+      if(!title||!url){ alert('Preencha título e URL'); return; }
+      if(!isUrl(url)) { alert('URL inválida (comece com http:// ou https://)'); return; }
+      try{
+        const res = await fetch(SCRIPT_URL, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'addLink',title, url, desc})});
+        const j = await res.json();
+        if(j && j.ok){ el('linkTitle').value=''; el('linkUrl').value=''; el('linkDesc').value=''; carregarLinks(); alert('Link adicionado'); }
+        else alert('Erro ao adicionar');
+      }catch(err){ console.error(err); alert('Erro na requisição'); }
+    });
+
+    // Recent clicks
+    async function carregarRecentClicks(){
+      try{
+        const r = await fetch(SCRIPT_URL + '?action=getRecentClicks');
+        const j = await r.json();
+        if(!j.ok) return;
+        const elc = el('recentClicks'); elc.innerHTML='';
+        (j.items||[]).slice(0,200).forEach(c=>{
+          const d = document.createElement('div'); d.className='small'; d.style.padding='6px 0'; d.textContent = `${c.ts} — ${c.linkTitle || c.linkId} — ${c.ident || '-'} `; elc.appendChild(d);
+        });
+      }catch(e){ console.warn(e); }
+    }
+
+    // Exportar cliques CSV
+    el('exportBtn').addEventListener('click', async ()=>{
+      try{
+        const r = await fetch(SCRIPT_URL + '?action=exportCsv');
+        const txt = await r.text();
+        const blob = new Blob([txt], {type:'text/csv'});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = 'cliques_export.csv'; a.click();
+        URL.revokeObjectURL(url);
+      }catch(e){ alert('Erro ao exportar'); }
+    });
+
+    el('refreshBtn').addEventListener('click', carregarLinks);
+
+    // Inicial
+    carregarLinks();
+  </script>
+</body>
+</html>
+
+
