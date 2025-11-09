@@ -300,7 +300,7 @@
     // ========================================
     // CONFIGURAÇÕES
     // ========================================
-    const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwOOntzxRUbBFrD1-DIaZ0dZcl6Lgy3rvLGM1V6yKyTpA9M9NNkPId6t0hCB8B75gc8/exec';
+    const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxMc1mc9EZD-bB1aGJ8XBpAg0czHdM5WYqwuQrk3aWQhOlvam5sSQAMWc_6mq4aBSHbpA/exec';
 
     // ========================================
     // UTILITÁRIOS
@@ -342,20 +342,31 @@
     // ========================================
     async function carregarLinks() {
       try {
-        const r = await fetch(SCRIPT_URL + '?action=getLinks');
+        console.log('🔄 Carregando links...');
+        console.log('📍 URL da API:', SCRIPT_URL);
+        
+        const url = SCRIPT_URL + '?action=getLinks';
+        console.log('🌐 URL completa:', url);
+        
+        const r = await fetch(url);
+        console.log('📥 Resposta recebida. Status:', r.status);
+        
         const j = await r.json();
+        console.log('📦 Dados JSON:', j);
         
         if (!j.ok) {
-          showToast('Erro ao carregar links', 'warning');
+          console.warn('⚠️ Resposta não-OK:', j);
+          showToast('Erro ao carregar links: ' + (j.error || 'Desconhecido'), 'warning');
           return;
         }
 
         allLinks = j.links || [];
+        console.log('✅ Links carregados:', allLinks.length);
         renderLinks();
         updateStats();
       } catch (err) {
-        console.error(err);
-        showToast('Erro de conexão', 'warning');
+        console.error('❌ Erro completo:', err);
+        showToast('Erro de conexão: ' + err.message, 'warning');
       }
     }
 
