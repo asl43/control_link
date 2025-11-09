@@ -300,7 +300,7 @@
     // ========================================
     // CONFIGURAÇÕES
     // ========================================
-    const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzJf69QsW-s48n5GUjOqThfidLhlI0rEMmsmEBIbb0MROI59Z11t9nTU8lGDKjz7Y2A/exec';
+    const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxMc1mc9EZD-bB1aGJ8XBpAg0czHdM5WYqwuQrk3aWQhOlvam5sSQAMWc_6mq4aBSHbpA/exec';
 
     // ========================================
     // UTILITÁRIOS
@@ -497,22 +497,12 @@
       btn.textContent = '⏳ Verificando...';
 
       try {
-        const res = await fetch(SCRIPT_URL, {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ 
-            action: 'auth', 
-            password: pass 
-          })
-        });
+        // Usar GET em vez de POST para evitar problemas de CORS
+        const url = SCRIPT_URL + '?action=auth&password=' + encodeURIComponent(pass);
+        const res = await fetch(url);
         
-        // Log da resposta para debug
-        const responseText = await res.text();
-        console.log('Resposta do servidor:', responseText);
-        
-        const j = JSON.parse(responseText);
+        const j = await res.json();
+        console.log('Resposta de autenticação:', j);
         
         if (j && j.ok) {
           isAdmin = true;
