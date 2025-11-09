@@ -480,14 +480,28 @@
         return;
       }
 
+      // Desabilitar botão durante requisição
+      const btn = el('btnAdminLogin');
+      btn.disabled = true;
+      btn.textContent = '⏳ Verificando...';
+
       try {
         const res = await fetch(SCRIPT_URL, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'auth', password: pass })
+          headers: { 
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ 
+            action: 'auth', 
+            password: pass 
+          })
         });
         
-        const j = await res.json();
+        // Log da resposta para debug
+        const responseText = await res.text();
+        console.log('Resposta do servidor:', responseText);
+        
+        const j = JSON.parse(responseText);
         
         if (j && j.ok) {
           isAdmin = true;
@@ -495,11 +509,16 @@
           showToast('✅ Login realizado com sucesso!', 'success');
           carregarRecentClicks();
         } else {
-          showToast('❌ Senha incorreta', 'warning');
+          showToast('❌ ' + (j.error || 'Senha incorreta'), 'warning');
+          console.error('Erro de autenticação:', j);
         }
       } catch (e) {
-        console.error(e);
-        showToast('Erro ao autenticar', 'warning');
+        console.error('Erro completo:', e);
+        showToast('Erro ao autenticar: ' + e.message, 'warning');
+      } finally {
+        // Reabilitar botão
+        btn.disabled = false;
+        btn.textContent = '🔐 Entrar';
       }
     });
 
